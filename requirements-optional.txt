@@ -1,0 +1,3 @@
+# The simulator itself needs nothing beyond the Python 3.10+ standard library.
+# Optional: charts for `python -m elevator_sim.experiments`.
+matplotlib>=3.6

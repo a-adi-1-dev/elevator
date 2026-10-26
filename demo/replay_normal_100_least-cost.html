@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Elevator replay: normal_100.csv (least-cost)</title>
+<style>
+  :root {
+    --bg: #f9f9f7; --surface: #fcfcfb; --ink: #0b0b0b; --ink-2: #52514e; --muted: #898781;
+    --grid: #e1e0d9; --axis: #c3c2b7; --car: #2a78d6; --car-ink: #ffffff; --hold: #1c5cab;
+    --up: #1baf7a; --down: #eb6834; --ring: rgba(11,11,11,0.10);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0d0d0d; --surface: #1a1a19; --ink: #f0efec; --ink-2: #c3c2b7; --muted: #898781;
+      --grid: #2c2c2a; --axis: #383835; --car: #3987e5; --car-ink: #ffffff; --hold: #184f95;
+      --up: #199e70; --down: #d95926; --ring: rgba(255,255,255,0.10);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0d0d0d; --surface: #1a1a19; --ink: #f0efec; --ink-2: #c3c2b7; --muted: #898781;
+    --grid: #2c2c2a; --axis: #383835; --car: #3987e5; --car-ink: #ffffff; --hold: #184f95;
+    --up: #199e70; --down: #d95926; --ring: rgba(255,255,255,0.10);
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 1100px; margin: 0 auto; padding: 20px 16px 32px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .sub { color: var(--ink-2); margin: 0 0 16px; }
+  .layout { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 16px; align-items: start; }
+  @media (max-width: 760px) { .layout { grid-template-columns: 1fr; } }
+  .panel { background: var(--surface); border: 1px solid var(--ring); border-radius: 10px; padding: 14px; }
+  .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
+  button, select { font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--axis);
+                   border-radius: 6px; padding: 5px 10px; cursor: pointer; }
+  button:hover, select:hover { border-color: var(--muted); }
+  input[type=range] { flex: 1 1 200px; accent-color: var(--car); }
+  .tick { font-variant-numeric: tabular-nums; color: var(--ink-2); min-width: 92px; }
+  svg { display: block; width: 100%; height: auto; max-height: calc(100vh - 150px); }
+  .stat { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--grid); }
+  .stat:last-of-type { border-bottom: 0; }
+  .stat b { font-variant-numeric: tabular-nums; }
+  .legend { color: var(--ink-2); font-size: 12px; margin-top: 10px; display: grid; gap: 4px; }
+  .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
+  pre { font-size: 12px; overflow-x: auto; color: var(--ink-2); margin: 0; }
+  details { margin-top: 16px; }
+  summary { cursor: pointer; color: var(--ink-2); }
+</style>
+</head>
+<body>
+<main>
+  <h1 id="title"></h1>
+  <p class="sub" id="subtitle"></p>
+  <div class="layout">
+    <div class="panel">
+      <div class="controls">
+        <button id="play" type="button">Play</button>
+        <button id="back" type="button" aria-label="Previous tick">&#8592;</button>
+        <button id="step" type="button" aria-label="Next tick">&#8594;</button>
+        <select id="speed" aria-label="Playback speed">
+          <option value="2">2 ticks/s</option>
+          <option value="5" selected>5 ticks/s</option>
+          <option value="10">10 ticks/s</option>
+          <option value="25">25 ticks/s</option>
+          <option value="60">60 ticks/s</option>
+        </select>
+        <input id="scrub" type="range" min="0" value="0" aria-label="Tick">
+        <span class="tick" id="tick"></span>
+      </div>
+      <svg id="shaft" role="img" aria-label="Elevator positions"></svg>
+    </div>
+    <div class="panel">
+      <div class="stat"><span>Delivered</span><b id="s-done"></b></div>
+      <div class="stat"><span>Riding now</span><b id="s-riding"></b></div>
+      <div class="stat"><span>Waiting now</span><b id="s-waiting"></b></div>
+      <div class="stat"><span>Avg wait so far</span><b id="s-avg"></b></div>
+      <div class="stat"><span>Longest wait so far</span><b id="s-max"></b></div>
+      <div class="legend">
+        <div><span class="sw" style="background:var(--car)"></span>car: number = riders aboard, arrow = heading</div>
+        <div><span class="sw" style="background:var(--hold);outline:1.5px dashed var(--ink);outline-offset:-1px"></span>car holding its doors open (door time &gt; 0)</div>
+        <div><span class="sw" style="background:var(--up)"></span>&#9650; waiting to go up</div>
+        <div><span class="sw" style="background:var(--down)"></span>&#9660; waiting to go down</div>
+      </div>
+      <details>
+        <summary>Final summary</summary>
+        <pre>ticks simulated : 205
+requests        : 100
+completed       : 100
+
+                min   p50   p95   max      avg
+wait time         0     2     7    10     2.69
+travel time       1     4     9     9     4.63
+total time        1     7    16    19     7.32
+
+longest wait : p40 waited 10 ticks (floor 1 -&gt; 10, requested at t=56)
+
+elevator   floors moved  stops  carried  peak load  moving
+0                   138     49       30          3     67%
+1                   162     43       35          4     79%
+2                   144     51       35          3     70%</pre>
+      </details>
+    </div>
+  </div>
+</main>
+<script>
+const DATA = {"meta":{"source":"normal_100.csv","scheduler":"least-cost","floors":10,"elevators":3,"capacity":8,"doorTime":0,"passengers":100},"frames":[{"t":0,"cars":[[1,0,"U",0,1],[1,0,"",0,0],[1,0,"",0,0]],"up":{"4":1},"down":{},"done":0,"known":1,"riding":0,"avgWait":null,"maxWait":null},{"t":1,"cars":[[2,0,"U",0,1],[1,1,"U",0,0],[1,0,"U",0,1]],"up":{"4":1},"down":{"5":1},"done":0,"known":3,"riding":1,"avgWait":null,"maxWait":null},{"t":2,"cars":[[3,0,"U",0,1],[2,1,"U",0,0],[2,0,"U",0,2]],"up":{"4":1,"1":1},"down":{"5":1},"done":0,"known":4,"riding":1,"avgWait":null,"maxWait":null},{"t":3,"cars":[[4,1,"U",0,0],[3,1,"U",0,0],[3,0,"U",0,3]],"up":{"1":2},"down":{"5":1},"done":0,"known":5,"riding":2,"avgWait":null,"maxWait":null},{"t":4,"cars":[[5,1,"U",0,0],[4,1,"U",0,0],[4,0,"U",0,3]],"up":{"1":2},"down":{"5":1},"done":0,"known":5,"riding":2,"avgWait":null,"maxWait":null},{"t":5,"cars":[[6,1,"U",0,0],[5,1,"U",0,0],[5,1,"D",0,2]],"up":{"1":2},"down":{},"done":0,"known":5,"riding":3,"avgWait":null,"maxWait":null},{"t":6,"cars":[[7,1,"U",0,0],[6,0,"",0,0],[4,1,"D",0,2]],"up":{"1":2},"down":{},"done":1,"known":5,"riding":2,"avgWait":0.0,"maxWait":0},{"t":7,"cars":[[8,0,"",0,0],[6,0,"",0,0],[3,1,"D",0,3]],"up":{"1":2},"down":{"2":1},"done":2,"known":6,"riding":1,"avgWait":1.5,"maxWait":3},{"t":8,"cars":[[8,0,"",0,0],[6,0,"",0,0],[2,2,"D",0,2]],"up":{"1":2},"down":{},"done":2,"known":6,"riding":2,"avgWait":1.5,"maxWait":3},{"t":9,"cars":[[8,0,"",0,0],[6,0,"",0,0],[1,2,"U",0,0]],"up":{},"down":{},"done":4,"known":6,"riding":2,"avgWait":2.0,"maxWait":4},{"t":10,"cars":[[8,0,"",0,0],[6,0,"",0,0],[2,2,"U",0,0]],"up":{},"down":{},"done":4,"known":6,"riding":2,"avgWait":2.0,"maxWait":4},{"t":11,"cars":[[8,0,"",0,0],[6,0,"D",0,1],[3,2,"U",0,0]],"up":{"1":1},"down":{},"done":4,"known":7,"riding":2,"avgWait":2.0,"maxWait":4},{"t":12,"cars":[[8,0,"",0,0],[5,0,"D",0,1],[4,2,"U",0,0]],"up":{"1":1},"down":{},"done":4,"known":7,"riding":2,"avgWait":2.0,"maxWait":4},{"t":13,"cars":[[8,0,"",0,0],[4,0,"D",0,1],[5,2,"U",0,0]],"up":{"1":1},"down":{},"done":4,"known":7,"riding":2,"avgWait":2.0,"maxWait":4},{"t":14,"cars":[[8,0,"D",0,1],[3,0,"D",0,1],[6,2,"U",0,0]],"up":{"1":1},"down":{"6":1},"done":4,"known":8,"riding":2,"avgWait":2.0,"maxWait":4},{"t":15,"cars":[[7,0,"D",0,1],[2,0,"D",0,2],[7,2,"U",0,0]],"up":{"1":2},"down":{"6":1},"done":4,"known":9,"riding":2,"avgWait":2.0,"maxWait":4},{"t":16,"cars":[[6,1,"D",0,0],[1,2,"U",0,0],[8,2,"U",0,0]],"up":{},"down":{},"done":4,"known":9,"riding":5,"avgWait":2.0,"maxWait":4},{"t":17,"cars":[[5,0,"",0,0],[2,2,"U",0,1],[9,2,"U",0,0]],"up":{"1":1},"down":{},"done":5,"known":10,"riding":4,"avgWait":2.0,"maxWait":4},{"t":18,"cars":[[5,0,"",0,0],[3,1,"D",0,1],[10,0,"",0,0]],"up":{"1":1},"down":{},"done":9,"known":11,"riding":1,"avgWait":3.22,"maxWait":7},{"t":19,"cars":[[5,0,"",0,0],[2,1,"D",0,2],[10,0,"",0,0]],"up":{"1":2},"down":{},"done":9,"known":12,"riding":1,"avgWait":3.22,"maxWait":7},{"t":20,"cars":[[5,0,"U",0,2],[1,2,"U",0,0],[10,0,"",0,0]],"up":{"1":1},"down":{"6":1},"done":10,"known":14,"riding":2,"avgWait":2.9,"maxWait":7},{"t":21,"cars":[[6,1,"D",0,2],[2,2,"U",0,0],[10,0,"",0,0]],"up":{"1":2},"down":{},"done":10,"known":15,"riding":3,"avgWait":2.9,"maxWait":7},{"t":22,"cars":[[5,1,"D",0,2],[3,2,"U",0,0],[10,1,"D",0,0]],"up":{"1":2},"down":{},"done":10,"known":16,"riding":4,"avgWait":2.9,"maxWait":7},{"t":23,"cars":[[4,1,"D",0,2],[4,2,"U",0,0],[9,1,"D",0,0]],"up":{"1":2},"down":{},"done":10,"known":16,"riding":4,"avgWait":2.9,"maxWait":7},{"t":24,"cars":[[3,1,"D",0,2],[5,1,"U",0,0],[8,1,"D",0,0]],"up":{"1":2},"down":{},"done":11,"known":16,"riding":3,"avgWait":2.73,"maxWait":7},{"t":25,"cars":[[2,1,"D",0,2],[6,1,"U",0,1],[7,1,"D",0,0]],"up":{"1":2},"down":{"10":1},"done":11,"known":17,"riding":3,"avgWait":2.73,"maxWait":7},{"t":26,"cars":[[1,2,"U",0,0],[7,0,"U",0,1],[6,1,"D",0,1]],"up":{"1":1},"down":{"10":1},"done":13,"known":18,"riding":3,"avgWait":2.62,"maxWait":7},{"t":27,"cars":[[2,2,"U",0,0],[8,0,"U",0,3],[5,1,"D",0,1]],"up":{"1":1},"down":{"10":2,"7":1},"done":13,"known":20,"riding":3,"avgWait":2.62,"maxWait":7},{"t":28,"cars":[[3,1,"U",0,1],[9,0,"U",0,3],[4,1,"D",0,2]],"up":{"1":2,"6":1},"down":{"10":2,"7":1},"done":14,"known":22,"riding":2,"avgWait":2.79,"maxWait":7},{"t":29,"cars":[[4,1,"U",0,1],[10,2,"D",0,1],[3,1,"D",0,2]],"up":{"1":2,"6":1},"down":{"7":1},"done":14,"known":22,"riding":4,"avgWait":2.79,"maxWait":7},{"t":30,"cars":[[5,1,"U",0,1],[9,2,"D",0,1],[2,1,"D",0,2]],"up":{"1":2,"6":1},"down":{"7":1},"done":14,"known":22,"riding":4,"avgWait":2.79,"maxWait":7},{"t":31,"cars":[[6,2,"U",0,0],[8,2,"D",0,1],[1,2,"U",0,0]],"up":{},"down":{"7":1},"done":15,"known":22,"riding":6,"avgWait":2.6,"maxWait":7},{"t":32,"cars":[[7,1,"U",0,0],[7,3,"D",0,1],[2,1,"U",0,0]],"up":{},"down":{"4":1},"done":17,"known":23,"riding":5,"avgWait":2.65,"maxWait":7},{"t":33,"cars":[[8,1,"U",0,0],[6,3,"D",0,1],[3,1,"U",0,0]],"up":{},"down":{"4":1},"done":17,"known":23,"riding":5,"avgWait":2.65,"maxWait":7},{"t":34,"cars":[[9,1,"U",0,0],[5,3,"D",0,1],[4,1,"U",0,0]],"up":{},"down":{"4":1},"done":17,"known":23,"riding":5,"avgWait":2.65,"maxWait":7},{"t":35,"cars":[[10,0,"",0,0],[4,4,"D",0,2],[5,1,"U",0,1]],"up":{"1":2},"down":{"6":1},"done":18,"known":26,"riding":5,"avgWait":2.83,"maxWait":7},{"t":36,"cars":[[10,0,"",0,0],[3,4,"D",0,2],[6,1,"U",0,1]],"up":{"1":2},"down":{"6":1},"done":18,"known":26,"riding":5,"avgWait":2.83,"maxWait":7},{"t":37,"cars":[[10,0,"",0,0],[2,4,"D",0,2],[7,0,"D",0,1]],"up":{"1":2},"down":{"6":1},"done":19,"known":26,"riding":4,"avgWait":2.95,"maxWait":7},{"t":38,"cars":[[10,0,"",0,0],[1,2,"U",0,0],[6,1,"D",0,0]],"up":{},"down":{},"done":23,"known":26,"riding":3,"avgWait":3.04,"maxWait":7},{"t":39,"cars":[[10,0,"D",0,2],[2,2,"U",0,0],[5,1,"D",0,1]],"up":{"1":1},"down":{"6":2},"done":23,"known":29,"riding":3,"avgWait":3.04,"maxWait":7},{"t":40,"cars":[[9,0,"D",0,3],[3,2,"U",0,1],[4,1,"D",0,1]],"up":{"1":1},"down":{"6":2,"10":1,"7":1},"done":23,"known":31,"riding":3,"avgWait":3.04,"maxWait":7},{"t":41,"cars":[[8,0,"D",0,4],[4,2,"U",0,1],[3,1,"D",0,1]],"up":{"1":1},"down":{"6":2,"10":1,"7":2},"done":23,"known":32,"riding":3,"avgWait":3.04,"maxWait":7},{"t":42,"cars":[[7,2,"D",0,2],[5,0,"U",0,2],[2,1,"D",0,1]],"up":{"1":1},"down":{"6":2,"10":2},"done":25,"known":33,"riding":3,"avgWait":3.04,"maxWait":7},{"t":43,"cars":[[6,3,"D",0,0],[6,0,"U",0,2],[1,1,"U",0,0]],"up":{},"down":{"10":2},"done":27,"known":33,"riding":4,"avgWait":3.0,"maxWait":7},{"t":44,"cars":[[5,2,"D",0,0],[7,0,"U",0,2],[2,1,"U",0,0]],"up":{},"down":{"10":2},"done":28,"known":33,"riding":3,"avgWait":3.04,"maxWait":7},{"t":45,"cars":[[4,2,"D",0,0],[8,0,"U",0,2],[3,0,"",0,0]],"up":{},"down":{"10":2},"done":29,"known":33,"riding":2,"avgWait":3.07,"maxWait":7},{"t":46,"cars":[[3,2,"D",0,0],[9,0,"U",0,3],[3,0,"",0,0]],"up":{},"down":{"10":2,"8":1},"done":29,"known":34,"riding":2,"avgWait":3.07,"maxWait":7},{"t":47,"cars":[[2,2,"D",0,0],[10,2,"D",0,1],[3,0,"",0,0]],"up":{},"down":{"8":1},"done":29,"known":34,"riding":4,"avgWait":3.07,"maxWait":7},{"t":48,"cars":[[1,0,"",0,0],[9,2,"D",0,2],[3,0,"U",0,1]],"up":{},"down":{"4":1,"8":2},"done":31,"known":36,"riding":2,"avgWait":3.03,"maxWait":7},{"t":49,"cars":[[1,0,"",0,0],[8,4,"D",0,0],[4,1,"D",0,0]],"up":{},"down":{},"done":31,"known":36,"riding":5,"avgWait":3.03,"maxWait":7},{"t":50,"cars":[[1,0,"U",0,1],[7,4,"D",0,0],[3,1,"D",0,0]],"up":{},"down":{"10":1},"done":31,"known":37,"riding":5,"avgWait":3.03,"maxWait":7},{"t":51,"cars":[[2,0,"U",0,1],[6,4,"D",0,0],[2,1,"D",0,0]],"up":{},"down":{"10":1},"done":31,"known":37,"riding":5,"avgWait":3.03,"maxWait":7},{"t":52,"cars":[[3,0,"U",0,1],[5,4,"D",0,0],[1,0,"",0,0]],"up":{},"down":{"10":1},"done":32,"known":37,"riding":4,"avgWait":2.97,"maxWait":7},{"t":53,"cars":[[4,0,"U",0,1],[4,4,"D",0,0],[1,0,"",0,0]],"up":{},"down":{"10":1},"done":32,"known":37,"riding":4,"avgWait":2.97,"maxWait":7},{"t":54,"cars":[[5,0,"U",0,1],[3,4,"D",0,1],[1,1,"U",0,0]],"up":{"1":1},"down":{"10":1},"done":32,"known":39,"riding":5,"avgWait":2.97,"maxWait":7},{"t":55,"cars":[[6,0,"U",0,1],[2,4,"D",0,1],[2,1,"U",0,0]],"up":{"1":1},"down":{"10":1},"done":32,"known":39,"riding":5,"avgWait":2.97,"maxWait":7},{"t":56,"cars":[[7,0,"U",0,1],[1,1,"U",0,0],[3,1,"U",0,1]],"up":{"1":1},"down":{"10":1},"done":36,"known":40,"riding":2,"avgWait":3.08,"maxWait":7},{"t":57,"cars":[[8,0,"U",0,1],[2,1,"U",0,0],[4,1,"U",0,2]],"up":{"1":1},"down":{"5":1,"10":1},"done":36,"known":41,"riding":2,"avgWait":3.08,"maxWait":7},{"t":58,"cars":[[9,0,"U",0,1],[3,1,"U",0,0],[5,1,"U",0,4]],"up":{"1":2},"down":{"5":1,"2":1,"10":1},"done":36,"known":43,"riding":2,"avgWait":3.08,"maxWait":7},{"t":59,"cars":[[10,1,"D",0,0],[4,1,"U",0,0],[6,1,"U",0,4]],"up":{"1":2},"down":{"5":1,"2":1},"done":36,"known":43,"riding":3,"avgWait":3.08,"maxWait":7},{"t":60,"cars":[[9,1,"D",0,0],[5,1,"U",0,0],[7,0,"D",0,4]],"up":{"1":2},"down":{"5":1,"2":1},"done":37,"known":43,"riding":2,"avgWait":3.0,"maxWait":7},{"t":61,"cars":[[8,1,"D",0,0],[6,1,"U",0,1],[6,0,"D",0,4]],"up":{"1":2,"5":1},"down":{"5":1,"2":1},"done":37,"known":44,"riding":2,"avgWait":3.0,"maxWait":7},{"t":62,"cars":[[7,1,"D",0,0],[7,1,"U",0,1],[5,1,"D",0,4]],"up":{"1":3,"5":1},"down":{"2":1},"done":37,"known":45,"riding":3,"avgWait":3.0,"maxWait":7},{"t":63,"cars":[[6,1,"D",0,0],[8,0,"D",0,1],[4,1,"D",0,4]],"up":{"1":3,"5":1},"down":{"2":1},"done":38,"known":45,"riding":2,"avgWait":2.97,"maxWait":7},{"t":64,"cars":[[5,1,"D",0,0],[7,0,"D",0,1],[3,1,"D",0,4]],"up":{"1":3,"5":1},"down":{"2":1},"done":38,"known":45,"riding":2,"avgWait":2.97,"maxWait":7},{"t":65,"cars":[[4,1,"D",0,0],[6,0,"D",0,1],[2,2,"D",0,3]],"up":{"1":3,"5":1},"down":{},"done":38,"known":45,"riding":3,"avgWait":2.97,"maxWait":7},{"t":66,"cars":[[3,1,"D",0,0],[5,1,"U",0,0],[1,3,"U",0,0]],"up":{},"down":{},"done":40,"known":45,"riding":5,"avgWait":3.12,"maxWait":7},{"t":67,"cars":[[2,1,"D",0,0],[6,1,"U",0,1],[2,2,"U",0,1]],"up":{"3":1},"down":{"10":1},"done":41,"known":47,"riding":4,"avgWait":3.24,"maxWait":8},{"t":68,"cars":[[1,0,"",0,0],[7,1,"U",0,1],[3,3,"U",0,0]],"up":{},"down":{"10":1},"done":43,"known":48,"riding":4,"avgWait":3.42,"maxWait":9},{"t":69,"cars":[[1,0,"",0,0],[8,0,"U",0,1],[4,2,"U",0,0]],"up":{},"down":{"10":1},"done":45,"known":48,"riding":2,"avgWait":3.29,"maxWait":9},{"t":70,"cars":[[1,0,"",0,0],[9,0,"U",0,1],[5,2,"U",0,0]],"up":{},"down":{"10":1},"done":45,"known":48,"riding":2,"avgWait":3.29,"maxWait":9},{"t":71,"cars":[[1,1,"U",0,1],[10,1,"D",0,0],[6,2,"U",0,0]],"up":{"3":1},"down":{},"done":45,"known":50,"riding":4,"avgWait":3.29,"maxWait":9},{"t":72,"cars":[[2,1,"U",0,1],[9,1,"D",0,0],[7,2,"U",0,0]],"up":{"3":1},"down":{},"done":45,"known":50,"riding":4,"avgWait":3.29,"maxWait":9},{"t":73,"cars":[[3,2,"U",0,0],[8,1,"D",0,0],[8,2,"U",0,1]],"up":{"6":1},"down":{},"done":45,"known":51,"riding":5,"avgWait":3.29,"maxWait":9},{"t":74,"cars":[[4,2,"U",0,0],[7,1,"D",0,0],[9,1,"U",0,1]],"up":{"6":1},"down":{},"done":46,"known":51,"riding":4,"avgWait":3.3,"maxWait":9},{"t":75,"cars":[[5,1,"U",0,0],[6,1,"D",0,0],[10,0,"D",0,1]],"up":{"6":1},"down":{},"done":48,"known":51,"riding":2,"avgWait":3.38,"maxWait":10},{"t":76,"cars":[[6,1,"U",0,1],[5,1,"D",0,0],[9,0,"D",0,1]],"up":{"6":1},"down":{"10":1},"done":48,"known":52,"riding":2,"avgWait":3.38,"maxWait":10},{"t":77,"cars":[[7,1,"U",0,1],[4,1,"D",0,0],[8,0,"D",0,1]],"up":{"6":1},"down":{"10":1},"done":48,"known":52,"riding":2,"avgWait":3.38,"maxWait":10},{"t":78,"cars":[[8,0,"U",0,1],[3,1,"D",0,0],[7,0,"D",0,1]],"up":{"6":1},"down":{"10":1},"done":49,"known":52,"riding":1,"avgWait":3.35,"maxWait":10},{"t":79,"cars":[[9,0,"U",0,1],[2,1,"D",0,0],[6,1,"U",0,0]],"up":{},"down":{"10":1},"done":49,"known":52,"riding":2,"avgWait":3.35,"maxWait":10},{"t":80,"cars":[[10,1,"D",0,0],[1,1,"U",0,0],[7,1,"U",0,1]],"up":{},"down":{"9":1},"done":50,"known":54,"riding":3,"avgWait":3.36,"maxWait":10},{"t":81,"cars":[[9,1,"D",0,0],[2,1,"U",0,0],[8,1,"U",0,1]],"up":{},"down":{"9":1},"done":50,"known":54,"riding":3,"avgWait":3.36,"maxWait":10},{"t":82,"cars":[[8,1,"D",0,0],[3,1,"U",0,0],[9,1,"D",0,0]],"up":{},"down":{},"done":51,"known":54,"riding":3,"avgWait":3.41,"maxWait":10},{"t":83,"cars":[[7,1,"D",0,0],[4,1,"U",0,0],[8,1,"D",0,0]],"up":{},"down":{},"done":51,"known":54,"riding":3,"avgWait":3.41,"maxWait":10},{"t":84,"cars":[[6,1,"D",0,1],[5,1,"U",0,0],[7,1,"D",0,0]],"up":{"1":1},"down":{},"done":51,"known":55,"riding":3,"avgWait":3.41,"maxWait":10},{"t":85,"cars":[[5,1,"D",0,1],[6,1,"U",0,0],[6,1,"D",0,0]],"up":{"1":1},"down":{},"done":51,"known":55,"riding":3,"avgWait":3.41,"maxWait":10},{"t":86,"cars":[[4,1,"D",0,1],[7,1,"U",0,0],[5,1,"D",0,0]],"up":{"1":1},"down":{},"done":51,"known":55,"riding":3,"avgWait":3.41,"maxWait":10},{"t":87,"cars":[[3,1,"D",0,1],[8,1,"U",0,0],[4,1,"D",0,0]],"up":{"1":1},"down":{},"done":51,"known":55,"riding":3,"avgWait":3.41,"maxWait":10},{"t":88,"cars":[[2,1,"D",0,1],[9,1,"U",0,0],[3,1,"D",0,0]],"up":{"1":1},"down":{},"done":51,"known":55,"riding":3,"avgWait":3.41,"maxWait":10},{"t":89,"cars":[[1,1,"U",0,0],[10,0,"",0,0],[2,1,"D",0,0]],"up":{},"down":{},"done":53,"known":55,"riding":2,"avgWait":3.36,"maxWait":10},{"t":90,"cars":[[2,0,"",0,0],[10,0,"",0,0],[1,1,"U",0,0]],"up":{},"down":{},"done":55,"known":56,"riding":1,"avgWait":3.36,"maxWait":10},{"t":91,"cars":[[2,0,"D",0,1],[10,0,"",0,0],[2,1,"U",0,0]],"up":{"1":1},"down":{},"done":55,"known":57,"riding":1,"avgWait":3.36,"maxWait":10},{"t":92,"cars":[[1,1,"U",0,0],[10,0,"",0,0],[3,1,"U",0,0]],"up":{},"down":{},"done":55,"known":57,"riding":2,"avgWait":3.36,"maxWait":10},{"t":93,"cars":[[2,1,"U",0,0],[10,0,"",0,0],[4,1,"U",0,0]],"up":{},"down":{},"done":55,"known":57,"riding":2,"avgWait":3.36,"maxWait":10},{"t":94,"cars":[[3,0,"",0,0],[10,0,"",0,0],[5,1,"U",0,0]],"up":{},"down":{},"done":56,"known":57,"riding":1,"avgWait":3.32,"maxWait":10},{"t":95,"cars":[[3,0,"",0,0],[10,0,"",0,0],[6,1,"U",0,0]],"up":{},"down":{},"done":56,"known":57,"riding":1,"avgWait":3.32,"maxWait":10},{"t":96,"cars":[[3,1,"D",0,0],[10,0,"",0,0],[7,1,"U",0,0]],"up":{},"down":{},"done":56,"known":58,"riding":2,"avgWait":3.32,"maxWait":10},{"t":97,"cars":[[2,1,"D",0,1],[10,0,"",0,0],[8,0,"",0,0]],"up":{"1":1},"down":{},"done":57,"known":59,"riding":1,"avgWait":3.26,"maxWait":10},{"t":98,"cars":[[1,1,"U",0,0],[10,0,"",0,0],[8,0,"",0,0]],"up":{},"down":{},"done":58,"known":59,"riding":1,"avgWait":3.21,"maxWait":10},{"t":99,"cars":[[2,1,"U",0,0],[10,0,"",0,0],[8,0,"",0,0]],"up":{},"down":{},"done":58,"known":59,"riding":1,"avgWait":3.21,"maxWait":10},{"t":100,"cars":[[3,1,"U",0,0],[10,0,"",0,0],[8,0,"",0,0]],"up":{},"down":{},"done":58,"known":59,"riding":1,"avgWait":3.21,"maxWait":10},{"t":101,"cars":[[4,1,"U",0,0],[10,0,"",0,0],[8,0,"",0,0]],"up":{},"down":{},"done":58,"known":59,"riding":1,"avgWait":3.21,"maxWait":10},{"t":102,"cars":[[5,2,"U",0,0],[10,0,"",0,0],[8,0,"D",0,1]],"up":{},"down":{"5":1},"done":58,"known":61,"riding":2,"avgWait":3.21,"maxWait":10},{"t":103,"cars":[[6,1,"U",0,0],[10,0,"",0,0],[7,0,"D",0,1]],"up":{},"down":{"5":1},"done":59,"known":61,"riding":1,"avgWait":3.15,"maxWait":10},{"t":104,"cars":[[7,1,"U",0,0],[10,0,"",0,0],[6,0,"D",0,2]],"up":{},"down":{"5":2},"done":59,"known":62,"riding":1,"avgWait":3.15,"maxWait":10},{"t":105,"cars":[[8,1,"U",0,0],[10,0,"",0,0],[5,2,"D",0,0]],"up":{},"down":{},"done":59,"known":62,"riding":3,"avgWait":3.15,"maxWait":10},{"t":106,"cars":[[9,0,"",0,0],[10,0,"",0,0],[4,1,"D",0,0]],"up":{},"down":{},"done":61,"known":62,"riding":1,"avgWait":3.08,"maxWait":10},{"t":107,"cars":[[9,0,"",0,0],[10,1,"D",0,0],[3,1,"D",0,0]],"up":{},"down":{},"done":61,"known":63,"riding":2,"avgWait":3.08,"maxWait":10},{"t":108,"cars":[[9,0,"",0,0],[9,1,"D",0,0],[2,1,"D",0,0]],"up":{},"down":{},"done":61,"known":63,"riding":2,"avgWait":3.08,"maxWait":10},{"t":109,"cars":[[9,0,"",0,0],[8,1,"D",0,0],[1,0,"",0,0]],"up":{},"down":{},"done":62,"known":63,"riding":1,"avgWait":3.08,"maxWait":10},{"t":110,"cars":[[9,0,"",0,0],[7,1,"D",0,0],[1,0,"",0,0]],"up":{},"down":{},"done":62,"known":63,"riding":1,"avgWait":3.08,"maxWait":10},{"t":111,"cars":[[9,0,"",0,0],[6,1,"D",0,0],[1,0,"",0,0]],"up":{},"down":{},"done":62,"known":63,"riding":1,"avgWait":3.08,"maxWait":10},{"t":112,"cars":[[9,0,"",0,0],[5,1,"D",0,0],[1,0,"",0,0]],"up":{},"down":{},"done":62,"known":63,"riding":1,"avgWait":3.08,"maxWait":10},{"t":113,"cars":[[9,0,"",0,0],[4,1,"D",0,0],[1,0,"",0,0]],"up":{},"down":{},"done":62,"known":63,"riding":1,"avgWait":3.08,"maxWait":10},{"t":114,"cars":[[9,0,"",0,0],[3,1,"D",0,0],[1,0,"",0,0]],"up":{},"down":{},"done":62,"known":63,"riding":1,"avgWait":3.08,"maxWait":10},{"t":115,"cars":[[9,0,"",0,0],[2,1,"D",0,0],[1,0,"",0,0]],"up":{},"down":{},"done":62,"known":63,"riding":1,"avgWait":3.08,"maxWait":10},{"t":116,"cars":[[9,0,"",0,0],[1,1,"U",0,0],[1,0,"",0,0]],"up":{},"down":{},"done":63,"known":64,"riding":1,"avgWait":3.03,"maxWait":10},{"t":117,"cars":[[9,0,"",0,0],[2,1,"U",0,0],[1,0,"U",0,1]],"up":{},"down":{"3":1},"done":63,"known":65,"riding":1,"avgWait":3.03,"maxWait":10},{"t":118,"cars":[[9,0,"",0,0],[3,1,"U",0,0],[2,0,"U",0,1]],"up":{},"down":{"3":1},"done":63,"known":65,"riding":1,"avgWait":3.03,"maxWait":10},{"t":119,"cars":[[9,0,"",0,0],[4,0,"",0,0],[3,1,"D",0,0]],"up":{},"down":{},"done":64,"known":65,"riding":1,"avgWait":2.98,"maxWait":10},{"t":120,"cars":[[9,0,"",0,0],[4,0,"",0,0],[2,0,"",0,0]],"up":{},"down":{},"done":65,"known":65,"riding":0,"avgWait":2.97,"maxWait":10},{"t":121,"cars":[[9,0,"",0,0],[4,0,"",0,0],[2,0,"",0,0]],"up":{},"down":{},"done":65,"known":65,"riding":0,"avgWait":2.97,"maxWait":10},{"t":122,"cars":[[9,0,"",0,0],[4,0,"",0,0],[2,0,"",0,0]],"up":{},"down":{},"done":65,"known":65,"riding":0,"avgWait":2.97,"maxWait":10},{"t":123,"cars":[[9,0,"",0,0],[4,0,"",0,0],[2,0,"",0,0]],"up":{},"down":{},"done":65,"known":65,"riding":0,"avgWait":2.97,"maxWait":10},{"t":124,"cars":[[9,0,"",0,0],[4,0,"",0,0],[2,0,"",0,0]],"up":{},"down":{},"done":65,"known":65,"riding":0,"avgWait":2.97,"maxWait":10},{"t":125,"cars":[[9,0,"",0,0],[4,0,"",0,0],[2,0,"",0,0]],"up":{},"down":{},"done":65,"known":65,"riding":0,"avgWait":2.97,"maxWait":10},{"t":126,"cars":[[9,0,"",0,0],[4,0,"",0,0],[2,0,"",0,0]],"up":{},"down":{},"done":65,"known":65,"riding":0,"avgWait":2.97,"maxWait":10},{"t":127,"cars":[[9,0,"",0,0],[4,0,"",0,0],[2,0,"",0,0]],"up":{},"down":{},"done":65,"known":65,"riding":0,"avgWait":2.97,"maxWait":10},{"t":128,"cars":[[9,0,"",0,0],[4,0,"",0,0],[2,0,"D",0,1]],"up":{"1":1},"down":{},"done":65,"known":66,"riding":0,"avgWait":2.97,"maxWait":10},{"t":129,"cars":[[9,0,"",0,0],[4,0,"D",0,1],[1,1,"U",0,0]],"up":{"1":1},"down":{},"done":65,"known":67,"riding":1,"avgWait":2.97,"maxWait":10},{"t":130,"cars":[[9,0,"",0,0],[3,0,"D",0,1],[2,1,"U",0,0]],"up":{"1":1},"down":{},"done":65,"known":67,"riding":1,"avgWait":2.97,"maxWait":10},{"t":131,"cars":[[9,0,"",0,0],[2,0,"D",0,1],[3,1,"U",0,0]],"up":{"1":1},"down":{},"done":65,"known":67,"riding":1,"avgWait":2.97,"maxWait":10},{"t":132,"cars":[[9,0,"D",0,1],[1,1,"U",0,0],[4,1,"U",0,0]],"up":{"7":1},"down":{},"done":65,"known":68,"riding":2,"avgWait":2.97,"maxWait":10},{"t":133,"cars":[[8,0,"D",0,1],[2,1,"U",0,0],[5,1,"U",0,0]],"up":{"7":1},"down":{},"done":65,"known":68,"riding":2,"avgWait":2.97,"maxWait":10},{"t":134,"cars":[[7,1,"U",0,0],[3,1,"U",0,0],[6,0,"",0,0]],"up":{},"down":{},"done":66,"known":68,"riding":2,"avgWait":2.94,"maxWait":10},{"t":135,"cars":[[8,1,"U",0,0],[4,1,"U",0,0],[6,0,"",0,0]],"up":{},"down":{},"done":66,"known":68,"riding":2,"avgWait":2.94,"maxWait":10},{"t":136,"cars":[[9,0,"",0,0],[5,0,"",0,0],[6,0,"",0,0]],"up":{},"down":{},"done":68,"known":68,"riding":0,"avgWait":2.93,"maxWait":10},{"t":137,"cars":[[9,0,"",0,0],[5,0,"D",0,2],[6,0,"",0,0]],"up":{"1":2},"down":{},"done":68,"known":70,"riding":0,"avgWait":2.93,"maxWait":10},{"t":138,"cars":[[9,0,"",0,0],[4,0,"D",0,3],[6,0,"D",0,1]],"up":{"1":3},"down":{"5":1},"done":68,"known":72,"riding":0,"avgWait":2.93,"maxWait":10},{"t":139,"cars":[[9,0,"",0,0],[3,0,"D",0,3],[5,1,"D",0,0]],"up":{"1":3},"down":{},"done":68,"known":72,"riding":1,"avgWait":2.93,"maxWait":10},{"t":140,"cars":[[9,0,"",0,0],[2,0,"D",0,3],[4,1,"D",0,0]],"up":{"1":3},"down":{},"done":68,"known":72,"riding":1,"avgWait":2.93,"maxWait":10},{"t":141,"cars":[[9,0,"U",0,1],[1,3,"U",0,0],[3,1,"D",0,0]],"up":{},"down":{"10":1},"done":68,"known":73,"riding":4,"avgWait":2.93,"maxWait":10},{"t":142,"cars":[[10,1,"D",0,0],[2,3,"U",0,0],[2,1,"D",0,0]],"up":{},"down":{},"done":68,"known":73,"riding":5,"avgWait":2.93,"maxWait":10},{"t":143,"cars":[[9,1,"D",0,0],[3,3,"U",0,0],[1,0,"",0,0]],"up":{},"down":{},"done":69,"known":73,"riding":4,"avgWait":2.9,"maxWait":10},{"t":144,"cars":[[8,1,"D",0,0],[4,2,"U",0,0],[1,0,"",0,0]],"up":{},"down":{},"done":70,"known":73,"riding":3,"avgWait":2.9,"maxWait":10},{"t":145,"cars":[[7,1,"D",0,1],[5,1,"U",0,0],[1,0,"",0,0]],"up":{},"down":{"8":1},"done":71,"known":74,"riding":2,"avgWait":2.92,"maxWait":10},{"t":146,"cars":[[6,0,"U",0,1],[6,1,"U",0,0],[1,0,"",0,0]],"up":{},"down":{"8":1},"done":72,"known":74,"riding":1,"avgWait":2.89,"maxWait":10},{"t":147,"cars":[[7,0,"U",0,1],[7,1,"U",0,1],[1,0,"",0,0]],"up":{},"down":{"7":1,"8":1},"done":72,"known":75,"riding":1,"avgWait":2.89,"maxWait":10},{"t":148,"cars":[[8,1,"D",0,0],[8,1,"U",0,1],[1,1,"U",0,0]],"up":{},"down":{"7":1},"done":72,"known":76,"riding":3,"avgWait":2.89,"maxWait":10},{"t":149,"cars":[[7,1,"D",0,0],[9,1,"U",0,1],[2,0,"D",0,2]],"up":{"1":2},"down":{"7":1},"done":73,"known":78,"riding":2,"avgWait":2.85,"maxWait":10},{"t":150,"cars":[[6,1,"D",0,0],[10,0,"D",0,1],[1,3,"U",0,0]],"up":{},"down":{"7":1},"done":74,"known":79,"riding":4,"avgWait":2.86,"maxWait":10},{"t":151,"cars":[[5,1,"D",0,0],[9,0,"D",0,1],[2,1,"U",0,0]],"up":{},"down":{"7":1},"done":76,"known":79,"riding":2,"avgWait":2.8,"maxWait":10},{"t":152,"cars":[[4,1,"D",0,1],[8,1,"D",0,1],[3,1,"U",0,0]],"up":{"1":1},"down":{"7":1},"done":76,"known":81,"riding":3,"avgWait":2.8,"maxWait":10},{"t":153,"cars":[[3,0,"D",0,1],[7,2,"D",0,0],[4,1,"U",0,1]],"up":{"1":1},"down":{"10":1},"done":77,"known":82,"riding":3,"avgWait":2.81,"maxWait":10},{"t":154,"cars":[[2,0,"D",0,1],[6,2,"D",0,0],[5,1,"U",0,1]],"up":{"1":1},"down":{"10":1},"done":77,"known":82,"riding":3,"avgWait":2.81,"maxWait":10},{"t":155,"cars":[[1,2,"U",0,0],[5,2,"D",0,0],[6,1,"U",0,1]],"up":{},"down":{"10":1},"done":77,"known":83,"riding":5,"avgWait":2.81,"maxWait":10},{"t":156,"cars":[[2,2,"U",0,0],[4,2,"D",0,0],[7,1,"U",0,1]],"up":{},"down":{"10":1},"done":77,"known":83,"riding":5,"avgWait":2.81,"maxWait":10},{"t":157,"cars":[[3,1,"U",0,0],[3,2,"D",0,0],[8,0,"U",0,1]],"up":{},"down":{"10":1},"done":79,"known":83,"riding":3,"avgWait":2.75,"maxWait":10},{"t":158,"cars":[[4,1,"U",0,0],[2,2,"D",0,1],[9,0,"U",0,1]],"up":{"1":1},"down":{"10":1},"done":79,"known":84,"riding":3,"avgWait":2.75,"maxWait":10},{"t":159,"cars":[[5,1,"U",0,0],[1,1,"U",0,0],[10,1,"D",0,0]],"up":{},"down":{},"done":81,"known":84,"riding":3,"avgWait":2.75,"maxWait":10},{"t":160,"cars":[[6,1,"U",0,0],[2,0,"D",0,1],[9,1,"D",0,0]],"up":{"1":1},"down":{},"done":82,"known":85,"riding":2,"avgWait":2.73,"maxWait":10},{"t":161,"cars":[[7,1,"U",0,0],[1,1,"U",0,0],[8,1,"D",0,0]],"up":{},"down":{},"done":82,"known":85,"riding":3,"avgWait":2.73,"maxWait":10},{"t":162,"cars":[[8,0,"",0,0],[2,1,"U",0,0],[7,1,"D",0,0]],"up":{},"down":{},"done":83,"known":85,"riding":2,"avgWait":2.73,"maxWait":10},{"t":163,"cars":[[8,0,"",0,0],[3,1,"U",0,0],[6,1,"D",0,0]],"up":{},"down":{},"done":83,"known":85,"riding":2,"avgWait":2.73,"maxWait":10},{"t":164,"cars":[[8,1,"D",0,0],[4,1,"U",0,0],[5,1,"D",0,0]],"up":{},"down":{},"done":83,"known":86,"riding":3,"avgWait":2.73,"maxWait":10},{"t":165,"cars":[[7,1,"D",0,0],[5,1,"U",0,0],[4,1,"D",0,0]],"up":{},"down":{},"done":83,"known":86,"riding":3,"avgWait":2.73,"maxWait":10},{"t":166,"cars":[[6,1,"D",0,0],[6,0,"",0,0],[3,1,"D",0,0]],"up":{},"down":{},"done":84,"known":86,"riding":2,"avgWait":2.71,"maxWait":10},{"t":167,"cars":[[5,1,"D",0,0],[6,0,"",0,0],[2,0,"",0,0]],"up":{},"down":{},"done":85,"known":86,"riding":1,"avgWait":2.75,"maxWait":10},{"t":168,"cars":[[4,1,"D",0,0],[6,0,"",0,0],[2,0,"",0,0]],"up":{},"down":{},"done":85,"known":86,"riding":1,"avgWait":2.75,"maxWait":10},{"t":169,"cars":[[3,1,"D",0,0],[6,0,"U",0,1],[2,0,"",0,0]],"up":{},"down":{"10":1},"done":85,"known":87,"riding":1,"avgWait":2.75,"maxWait":10},{"t":170,"cars":[[2,1,"D",0,0],[7,0,"U",0,1],[2,0,"",0,0]],"up":{},"down":{"10":1},"done":85,"known":87,"riding":1,"avgWait":2.75,"maxWait":10},{"t":171,"cars":[[1,1,"U",0,0],[8,0,"U",0,1],[2,0,"D",0,1]],"up":{"1":1},"down":{"10":1},"done":86,"known":89,"riding":1,"avgWait":2.72,"maxWait":10},{"t":172,"cars":[[2,1,"U",0,1],[9,0,"U",0,1],[1,1,"U",0,0]],"up":{"3":1},"down":{"10":1},"done":86,"known":90,"riding":2,"avgWait":2.72,"maxWait":10},{"t":173,"cars":[[3,2,"U",0,0],[10,1,"D",0,0],[2,1,"U",0,0]],"up":{},"down":{},"done":86,"known":90,"riding":4,"avgWait":2.72,"maxWait":10},{"t":174,"cars":[[4,2,"U",0,0],[9,1,"D",0,0],[3,1,"U",0,1]],"up":{"2":1},"down":{},"done":86,"known":91,"riding":4,"avgWait":2.72,"maxWait":10},{"t":175,"cars":[[5,1,"U",0,0],[8,1,"D",0,0],[4,0,"D",0,1]],"up":{"2":1},"down":{},"done":88,"known":91,"riding":2,"avgWait":2.67,"maxWait":10},{"t":176,"cars":[[6,1,"U",0,0],[7,1,"D",0,0],[3,0,"D",0,1]],"up":{"2":1},"down":{},"done":88,"known":91,"riding":2,"avgWait":2.67,"maxWait":10},{"t":177,"cars":[[7,1,"U",0,0],[6,1,"D",0,0],[2,1,"U",0,0]],"up":{},"down":{},"done":88,"known":91,"riding":3,"avgWait":2.67,"maxWait":10},{"t":178,"cars":[[8,1,"U",0,0],[5,1,"D",0,1],[3,0,"",0,0]],"up":{},"down":{"4":1},"done":89,"known":92,"riding":2,"avgWait":2.67,"maxWait":10},{"t":179,"cars":[[9,1,"U",0,0],[4,2,"D",0,0],[3,0,"",0,0]],"up":{},"down":{},"done":89,"known":92,"riding":3,"avgWait":2.67,"maxWait":10},{"t":180,"cars":[[10,1,"D",0,0],[3,2,"D",0,0],[3,0,"",0,0]],"up":{},"down":{},"done":90,"known":93,"riding":3,"avgWait":2.66,"maxWait":10},{"t":181,"cars":[[9,1,"D",0,0],[2,2,"D",0,0],[3,0,"",0,0]],"up":{},"down":{},"done":90,"known":93,"riding":3,"avgWait":2.66,"maxWait":10},{"t":182,"cars":[[8,1,"D",0,0],[1,0,"",0,0],[3,0,"",0,0]],"up":{},"down":{},"done":92,"known":93,"riding":1,"avgWait":2.65,"maxWait":10},{"t":183,"cars":[[7,1,"D",0,0],[1,0,"",0,0],[3,0,"",0,0]],"up":{},"down":{},"done":92,"known":93,"riding":1,"avgWait":2.65,"maxWait":10},{"t":184,"cars":[[6,1,"D",0,0],[1,0,"",0,0],[3,0,"",0,0]],"up":{},"down":{},"done":92,"known":93,"riding":1,"avgWait":2.65,"maxWait":10},{"t":185,"cars":[[5,1,"D",0,0],[1,0,"",0,0],[3,0,"",0,0]],"up":{},"down":{},"done":92,"known":93,"riding":1,"avgWait":2.65,"maxWait":10},{"t":186,"cars":[[4,1,"D",0,0],[1,0,"U",0,2],[3,0,"U",0,1]],"up":{},"down":{"6":1,"10":1,"9":1},"done":92,"known":96,"riding":1,"avgWait":2.65,"maxWait":10},{"t":187,"cars":[[3,1,"D",0,0],[2,0,"U",0,2],[4,0,"U",0,1]],"up":{},"down":{"6":1,"10":1,"9":1},"done":92,"known":96,"riding":1,"avgWait":2.65,"maxWait":10},{"t":188,"cars":[[2,1,"D",0,0],[3,0,"U",0,2],[5,0,"U",0,1]],"up":{},"down":{"6":1,"10":1,"9":1},"done":92,"known":96,"riding":1,"avgWait":2.65,"maxWait":10},{"t":189,"cars":[[1,0,"U",0,1],[4,0,"U",0,2],[6,1,"D",0,0]],"up":{},"down":{"2":1,"10":1,"9":1},"done":93,"known":97,"riding":1,"avgWait":2.62,"maxWait":10},{"t":190,"cars":[[2,1,"D",0,0],[5,0,"U",0,2],[5,1,"D",0,0]],"up":{},"down":{"10":1,"9":1},"done":93,"known":97,"riding":2,"avgWait":2.62,"maxWait":10},{"t":191,"cars":[[1,0,"U",0,1],[6,0,"U",0,2],[4,1,"D",0,0]],"up":{},"down":{"2":1,"10":1,"9":1},"done":94,"known":98,"riding":1,"avgWait":2.61,"maxWait":10},{"t":192,"cars":[[2,1,"D",0,0],[7,0,"U",0,2],[3,1,"D",0,0]],"up":{},"down":{"10":1,"9":1},"done":94,"known":98,"riding":2,"avgWait":2.61,"maxWait":10},{"t":193,"cars":[[1,0,"",0,0],[8,0,"U",0,2],[2,0,"U",0,1]],"up":{},"down":{"3":1,"10":1,"9":1},"done":96,"known":99,"riding":0,"avgWait":2.59,"maxWait":10},{"t":194,"cars":[[1,0,"",0,0],[9,0,"U",0,2],[3,2,"D",0,0]],"up":{},"down":{"10":1,"9":1},"done":96,"known":100,"riding":2,"avgWait":2.59,"maxWait":10},{"t":195,"cars":[[1,0,"",0,0],[10,1,"D",0,1],[2,2,"D",0,0]],"up":{},"down":{"9":1},"done":96,"known":100,"riding":3,"avgWait":2.59,"maxWait":10},{"t":196,"cars":[[1,0,"",0,0],[9,2,"D",0,0],[1,0,"",0,0]],"up":{},"down":{},"done":98,"known":100,"riding":2,"avgWait":2.55,"maxWait":10},{"t":197,"cars":[[1,0,"",0,0],[8,2,"D",0,0],[1,0,"",0,0]],"up":{},"down":{},"done":98,"known":100,"riding":2,"avgWait":2.55,"maxWait":10},{"t":198,"cars":[[1,0,"",0,0],[7,2,"D",0,0],[1,0,"",0,0]],"up":{},"down":{},"done":98,"known":100,"riding":2,"avgWait":2.55,"maxWait":10},{"t":199,"cars":[[1,0,"",0,0],[6,2,"D",0,0],[1,0,"",0,0]],"up":{},"down":{},"done":98,"known":100,"riding":2,"avgWait":2.55,"maxWait":10},{"t":200,"cars":[[1,0,"",0,0],[5,2,"D",0,0],[1,0,"",0,0]],"up":{},"down":{},"done":98,"known":100,"riding":2,"avgWait":2.55,"maxWait":10},{"t":201,"cars":[[1,0,"",0,0],[4,2,"D",0,0],[1,0,"",0,0]],"up":{},"down":{},"done":98,"known":100,"riding":2,"avgWait":2.55,"maxWait":10},{"t":202,"cars":[[1,0,"",0,0],[3,2,"D",0,0],[1,0,"",0,0]],"up":{},"down":{},"done":98,"known":100,"riding":2,"avgWait":2.55,"maxWait":10},{"t":203,"cars":[[1,0,"",0,0],[2,2,"D",0,0],[1,0,"",0,0]],"up":{},"down":{},"done":98,"known":100,"riding":2,"avgWait":2.55,"maxWait":10},{"t":204,"cars":[[1,0,"",0,0],[1,0,"",0,0],[1,0,"",0,0]],"up":{},"down":{},"done":100,"known":100,"riding":0,"avgWait":2.69,"maxWait":10}]};
+const { meta, frames } = DATA;
+const NS = "http://www.w3.org/2000/svg";
+const $ = (id) => document.getElementById(id);
+
+$("title").textContent = `Elevator replay · ${meta.scheduler}`;
+$("subtitle").textContent = `${meta.source} · ${meta.passengers} passengers · ${meta.floors} floors · ` +
+  `${meta.elevators} cars · capacity ${meta.capacity} · door time ${meta.doorTime}`;
+
+// geometry
+const rowH = Math.max(10, Math.min(28, Math.floor(620 / meta.floors)));
+const labelW = 36, waitW = 96, carW = Math.max(28, Math.min(64, Math.floor(520 / meta.elevators))), gap = 8;
+const width = labelW + waitW + meta.elevators * (carW + gap) + gap;
+const height = meta.floors * rowH + 24;
+const svg = $("shaft");
+svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+const y = (floor) => (meta.floors - floor) * rowH + 4;
+const el = (tag, attrs, parent = svg) => {
+  const n = document.createElementNS(NS, tag);
+  for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v);
+  parent.appendChild(n);
+  return n;
+};
+const fontSize = Math.min(12, rowH - 2);
+
+// static: floor lines, labels, shafts
+const labelEvery = meta.floors > 40 ? 5 : meta.floors > 20 ? 2 : 1;
+for (let f = 1; f <= meta.floors; f++) {
+  el("line", { x1: labelW, x2: width, y1: y(f) + rowH, y2: y(f) + rowH, stroke: "var(--grid)", "stroke-width": 1 });
+  if (f === 1 || f % labelEvery === 0) {
+    const t = el("text", { x: labelW - 6, y: y(f) + rowH / 2 + fontSize / 3, "text-anchor": "end",
+                           "font-size": fontSize, fill: "var(--muted)" });
+    t.textContent = f;
+  }
+}
+const carX = (i) => labelW + waitW + gap + i * (carW + gap);
+for (let i = 0; i < meta.elevators; i++) {
+  el("rect", { x: carX(i), y: 4, width: carW, height: meta.floors * rowH, fill: "none",
+               stroke: "var(--grid)", "stroke-width": 1, rx: 3 });
+  const t = el("text", { x: carX(i) + carW / 2, y: height - 4, "text-anchor": "middle",
+                         "font-size": 11, fill: "var(--muted)" });
+  t.textContent = `car ${i}`;
+}
+
+// dynamic layers
+const waitLayer = el("g", {});
+const cars = [];
+for (let i = 0; i < meta.elevators; i++) {
+  const g = el("g", {});
+  const r = el("rect", { x: carX(i) + 2, width: carW - 4, height: rowH - 2, rx: 4 }, g);
+  const t = el("text", { x: carX(i) + carW / 2, "text-anchor": "middle", "font-size": fontSize,
+                         fill: "var(--car-ink)", "font-weight": 600 }, g);
+  const title = el("title", {}, g);
+  cars.push({ g, r, t, title });
+}
+
+let index = 0, playing = false, timer = null;
+const scrub = $("scrub");
+scrub.max = Math.max(0, frames.length - 1);
+
+function draw(i) {
+  const fr = frames[i];
+  if (!fr) return;
+  $("tick").textContent = `t = ${fr.t} / ${frames[frames.length - 1].t}`;
+  scrub.value = i;
+  fr.cars.forEach(([floor, load, dir, hold, assigned], k) => {
+    const c = cars[k];
+    const top = y(floor) + 1;
+    c.r.setAttribute("y", top);
+    c.r.setAttribute("fill", hold ? "var(--hold)" : "var(--car)");
+    c.r.setAttribute("stroke", hold ? "var(--ink)" : "none");
+    c.r.setAttribute("stroke-dasharray", hold ? "3 2" : "");
+    c.r.setAttribute("stroke-width", hold ? 1.5 : 0);
+    c.t.setAttribute("y", top + (rowH - 2) / 2 + fontSize / 3);
+    const arrow = dir === "U" ? "▲" : dir === "D" ? "▼" : "";
+    c.t.textContent = rowH >= 16 ? `${load}${arrow}` : `${load}`;
+    c.title.textContent = `car ${k} at floor ${floor}: ${load}/${meta.capacity} aboard, ` +
+      `${assigned} assigned and waiting${hold ? ", doors held open" : ""}`;
+  });
+  waitLayer.replaceChildren();
+  let waiting = 0;
+  for (const [key, color, glyph, dx] of [["up", "var(--up)", "▲", 0], ["down", "var(--down)", "▼", waitW / 2]]) {
+    for (const [floor, n] of Object.entries(fr[key])) {
+      waiting += n;
+      const t = el("text", { x: labelW + 6 + dx, y: y(+floor) + rowH / 2 + fontSize / 3,
+                             "font-size": fontSize, fill: color }, waitLayer);
+      t.textContent = `${glyph} ${n}`;
+    }
+  }
+  $("s-done").textContent = `${fr.done} / ${meta.passengers}`;
+  $("s-riding").textContent = fr.riding;
+  $("s-waiting").textContent = waiting;
+  $("s-avg").textContent = fr.avgWait === null ? "–" : `${fr.avgWait.toFixed(1)} ticks`;
+  $("s-max").textContent = fr.maxWait === null ? "–" : `${fr.maxWait} ticks`;
+}
+
+function setPlaying(on) {
+  playing = on;
+  $("play").textContent = on ? "Pause" : "Play";
+  clearInterval(timer);
+  if (on) {
+    if (index >= frames.length - 1) index = 0;
+    timer = setInterval(() => {
+      if (index >= frames.length - 1) { setPlaying(false); return; }
+      draw(++index);
+    }, 1000 / +$("speed").value);
+  }
+}
+$("play").onclick = () => setPlaying(!playing);
+$("step").onclick = () => { setPlaying(false); index = Math.min(frames.length - 1, index + 1); draw(index); };
+$("back").onclick = () => { setPlaying(false); index = Math.max(0, index - 1); draw(index); };
+$("speed").onchange = () => { if (playing) setPlaying(true); };
+scrub.oninput = () => { index = +scrub.value; draw(index); };
+document.addEventListener("keydown", (e) => {
+  if (e.target.tagName === "SELECT") return;
+  if (e.key === " ") { e.preventDefault(); setPlaying(!playing); }
+  if (e.key === "ArrowRight") $("step").click();
+  if (e.key === "ArrowLeft") $("back").click();
+});
+draw(0);
+</script>
+</body>
+</html>
